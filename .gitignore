@@ -1,0 +1,17 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Project data/outputs (regenerable; keep folder structure via .gitkeep)
+data/*
+!data/.gitkeep
+reports/*
+!reports/.gitkeep
