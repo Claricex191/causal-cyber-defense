@@ -1,0 +1,10 @@
+numpy>=1.26
+pandas>=2.1
+networkx>=3.2
+statsmodels>=0.14
+scikit-learn>=1.4
+torch>=2.2
+matplotlib>=3.8
+pytest>=8.0
+ruff>=0.3
+jupyter>=1.0

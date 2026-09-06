@@ -74,8 +74,14 @@ Continuous variables use the additive noise structural equation from the paper (
 ## Causal graph
 
 One leader drone per sub-swarm follows an exogenous mission trajectory; followers track a
-formation slot relative to the leader. Root nodes (leader position, commanded heading,
-satellite count, altitude) have no causal parents in the graph.
+formation slot relative to the leader. This graph is fit per follower drone; the leader
+itself isn't fit the same way, about half its fields (formation_error, accel, current_draw,
+comms) have no real causal structure for it, it has no formation to track and no comms
+neighbor, so pooling its data with followers' would corrupt the fit for fields where the
+relationship actually holds. Leader position and neighbor position are external inputs,
+joined in from another drone's own telemetry rather than generated within this graph. Root
+nodes (leader position, neighbor position, commanded heading, satellite count, altitude)
+have no causal parents in the graph.
 
 ```mermaid
 graph TD
@@ -84,6 +90,7 @@ graph TD
     leader --> ferr[Formation error]
     pos --> ferr
     pos --> dist[Inter-drone distance]
+    neighbor[Neighbor position] --> dist
     heading[Commanded heading] --> gyro[Gyroscope]
     ferr --> relvel[Relative velocity]
     ferr --> accel[Acceleration]
@@ -124,3 +131,9 @@ Python 3.11+, numpy/pandas, networkx, statsmodels (MLE fitting), scikit-learn, P
 (autoencoder), matplotlib (plots and graph viz), pytest, ruff.
 
 ## Setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
