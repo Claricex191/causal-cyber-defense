@@ -84,30 +84,81 @@ nodes (leader position, neighbor position, commanded heading, satellite count, a
 have no causal parents in the graph.
 
 ```mermaid
-graph TD
-    leader[Leader position] --> pos[Follower position]
-    sat[Satellite count] --> pos
-    leader --> ferr[Formation error]
-    pos --> ferr
-    pos --> dist[Inter-drone distance]
-    neighbor[Neighbor position] --> dist
-    heading[Commanded heading] --> gyro[Gyroscope]
-    ferr --> relvel[Relative velocity]
-    ferr --> accel[Acceleration]
-    dist --> sig[Signal strength]
-    accel --> current[Current draw]
-    ferr --> current
-    sig --> packet[Packet rate]
-    sig --> latency[Latency]
-    sig --> link[Link active]
-    current --> rpm[Motor RPM]
-    current --> batt[Battery voltage]
-    alt[Altitude]
+graph LR
+    subgraph GPS/Nav
+        leader_pos_x
+        leader_pos_y
+        neighbor_pos_x
+        neighbor_pos_y
+        satellite_count
+        pos_x
+        pos_y
+        altitude
+    end
+    subgraph IMU
+        mag_heading
+        gyro_z
+        gyro_x
+        gyro_y
+        accel_x
+        accel_y
+        accel_z
+    end
+    subgraph Formation
+        formation_error
+        inter_drone_distance
+        relative_velocity
+    end
+    subgraph Comms
+        signal_strength
+        packet_rate
+        latency
+        link_active
+    end
+    subgraph Power
+        current_draw
+        motor_rpm
+        battery_voltage
+    end
+
+    leader_pos_x --> pos_x
+    satellite_count --> pos_x
+    leader_pos_y --> pos_y
+    satellite_count --> pos_y
+    pos_x --> formation_error
+    pos_y --> formation_error
+    leader_pos_x --> formation_error
+    leader_pos_y --> formation_error
+    pos_x --> inter_drone_distance
+    pos_y --> inter_drone_distance
+    neighbor_pos_x --> inter_drone_distance
+    neighbor_pos_y --> inter_drone_distance
+    formation_error --> relative_velocity
+    formation_error --> accel_x
+    formation_error --> accel_y
+    pos_x --> accel_x
+    pos_y --> accel_y
+    leader_pos_x --> accel_x
+    leader_pos_y --> accel_y
+    pos_x --> accel_y
+    pos_y --> accel_x
+    leader_pos_x --> accel_y
+    leader_pos_y --> accel_x
+    mag_heading --> gyro_z
+    inter_drone_distance --> signal_strength
+    formation_error --> current_draw
+    signal_strength --> packet_rate
+    signal_strength --> latency
+    signal_strength --> link_active
+    current_draw --> motor_rpm
+    current_draw --> battery_voltage
 ```
 
-`battery_voltage` also depends on its own value at the previous timestep (slow discharge
-under load); `satellite_count` affects the variance of `pos` noise rather than its mean
-(fewer satellites means noisier position readings).
+Nodes shown with no edges (`accel_z`, `gyro_x`, `gyro_y`, `altitude`) are declared in
+`causal_swarm/causal/graph.py` but not yet wired into the structure. `battery_voltage` also
+depends on its own value at the previous timestep (slow discharge under load);
+`satellite_count` affects the variance of `pos` noise rather than its mean (fewer satellites
+means noisier position readings).
 
 ## Structure
 
