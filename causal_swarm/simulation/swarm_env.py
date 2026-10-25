@@ -13,6 +13,8 @@ import pandas as pd
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
+from causal_swarm.simulation.attacks import DoSFlood, GPSSpoof, active_attack, attack_label
+
 
 @dataclass
 class DroneState:
@@ -78,12 +80,15 @@ class SimulatorConfig:
     })  # drone_id -> neighbor drone_id, leader excluded
     seed: Optional[int] = None
     leader_start_pos: tuple = (0.0, 0.0)
+    attacks: list = field(default_factory=list)  # GPSSpoof / DoSFlood instances, empty = benign run
 
 
 class Simulator:
     """Generates benign (or attack-injected) multi-drone telemetry."""
 
     def __init__(self, config: SimulatorConfig):
+        if any(attack.drone_id == config.leader_id for attack in config.attacks):
+            raise ValueError("attacks can only target follower drones")
         self.config = config
         self.rng = np.random.default_rng(config.seed)
         self.noise_states: dict[int, NoiseState] = {
@@ -238,12 +243,19 @@ class Simulator:
         noise_state.pos_noise_x = self._ar1_step(noise_state.pos_noise_x, rho=0.97, sigma=pos_sigma)
         noise_state.pos_noise_y = self._ar1_step(noise_state.pos_noise_y, rho=0.97, sigma=pos_sigma)
 
-        offset_x, offset_y = self.config.formation_offsets[drone_id]
-        pos_x = leader_state.pos_x + offset_x + noise_state.pos_noise_x
-        pos_y = leader_state.pos_y + offset_y + noise_state.pos_noise_y
+        # A GPS spoof pushes the drone further off its slot, on top of the tracking noise.
+        # The noise state itself is untouched, so the random sequence doesn't change.
+        spoof = active_attack(self.config.attacks, drone_id, t, GPSSpoof)
+        spoof_x, spoof_y = spoof.offset(t) if spoof else (0.0, 0.0)
+        deviation_x = noise_state.pos_noise_x + spoof_x
+        deviation_y = noise_state.pos_noise_y + spoof_y
 
-        # formation_error is just the magnitude of the deviation we already generated
-        formation_error = float(np.hypot(noise_state.pos_noise_x, noise_state.pos_noise_y))
+        offset_x, offset_y = self.config.formation_offsets[drone_id]
+        pos_x = leader_state.pos_x + offset_x + deviation_x
+        pos_y = leader_state.pos_y + offset_y + deviation_y
+
+        # formation_error is just the magnitude of the deviation from the slot
+        formation_error = float(np.hypot(deviation_x, deviation_y))
 
         gyro_x, gyro_y, gyro_z = self._gyro_from_heading(prev_state, roots["mag_heading"])
 
@@ -252,7 +264,7 @@ class Simulator:
 
         # Correction acceleration points from the current deviation back toward the ideal slot
         accel_mag = self.accel_gain * formation_error + self.rng.normal(0, self.accel_noise_sigma)
-        angle = np.arctan2(-noise_state.pos_noise_y, -noise_state.pos_noise_x)
+        angle = np.arctan2(-deviation_y, -deviation_x)
         accel_x = accel_mag * np.cos(angle)
         accel_y = accel_mag * np.sin(angle)
         accel_z = self.rng.normal(0, self.accel_noise_sigma)
@@ -312,6 +324,13 @@ class Simulator:
             # eq. 7 logistic form, the one binary variable in the schema
             logit = self.link_active_alpha + self.link_active_beta * signal_strength
             p_active = 1.0 / (1.0 + np.exp(-logit))
+
+            # A DoS flood degrades this drone's own link. It lowers the probability fed
+            # into the same random draw as before, so the random sequence doesn't change.
+            dos = active_attack(self.config.attacks, drone_id, drone.timestep, DoSFlood)
+            if dos:
+                drone.packet_rate, drone.latency = dos.degrade(drone.packet_rate, drone.latency)
+                p_active = dos.link_probability(p_active)
             drone.link_active = bool(self.rng.random() < p_active)
 
     # ---- orchestration --------------------------------------------------
@@ -335,5 +354,8 @@ class Simulator:
         rows = []
         for t in range(self.config.num_timesteps):
             prev_states = self.step_timestep(t, prev_states)
-            rows.extend(asdict(state) for state in prev_states.values())
+            rows.extend(
+                {**asdict(state), "attack_type": attack_label(self.config.attacks, state.drone_id, t)}
+                for state in prev_states.values()
+            )
         return pd.DataFrame(rows)
